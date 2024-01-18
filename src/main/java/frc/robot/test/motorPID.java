@@ -124,6 +124,11 @@ public class motorPID {
         
         m_pidController.setReference(setPoint, CANSparkMax.ControlType.kVelocity);
         SmartDashboard.putNumber("ProcessVariable", m_encoder.getVelocity());
+        SmartDashboard.putNumber("SpeedInMs", m_encoder.getVelocity());
+        double motorVelocity = m_encoder.getVelocity()*((0.0762*2*Math.PI)/60);
+        SmartDashboard.putNumber("motorVelocity", motorVelocity);
+        
+        
     }
 
     public void updateSetpoint(double _setPoint){
