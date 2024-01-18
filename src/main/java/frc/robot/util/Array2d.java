@@ -1,4 +1,4 @@
-package frc.util;
+package frc.robot.util;
 /**
  * Handles 2 dimensional arrays
  */

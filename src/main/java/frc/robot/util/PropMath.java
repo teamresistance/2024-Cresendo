@@ -1,4 +1,4 @@
-package frc.util;
+package frc.robot.util;
 
 //Combines SimpleProp and some BotMath methods
 /**

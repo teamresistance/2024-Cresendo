@@ -10,7 +10,7 @@ History -
 3/6/22 - Added get remaining secs.
 */
 
-package frc.util;
+package frc.robot.util;
 
 public class Timer {
     private long time;            //Time in milli Seconds.  Passed as Seconds.
