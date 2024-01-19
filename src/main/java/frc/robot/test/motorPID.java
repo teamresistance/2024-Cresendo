@@ -89,7 +89,7 @@ public class motorPID {
         // read PID coefficients from SmartDashboard
         double p = SmartDashboard.getNumber("P Gain " + deviceID, 6e-5);
         double i = SmartDashboard.getNumber("I Gain " + deviceID, 0);
-        double d = SmartDashboard.getNumber("D Gain " + deviceID, 0);
+        double d = SmartDashboard.getNumber("D Gain " + deviceID, 3e-5);
         double iz = SmartDashboard.getNumber("I Zone " + deviceID, 0);
         double ff = SmartDashboard.getNumber("Feed Forward " + deviceID, 0.000015);
         double max = SmartDashboard.getNumber("Max Output " + deviceID, 1);
