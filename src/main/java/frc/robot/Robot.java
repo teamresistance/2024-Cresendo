@@ -1,5 +1,16 @@
 package frc.robot;
 
+import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
+
+import org.photonvision.EstimatedRobotPose;
+import org.photonvision.PhotonCamera;
+import org.photonvision.PhotonPoseEstimator;
+import org.photonvision.PhotonPoseEstimator.PoseStrategy;
+import org.photonvision.targeting.PhotonTrackedTarget;
+import org.photonvision.targeting.TargetCorner;
+
 import com.kauailabs.navx.frc.AHRS;
 import com.revrobotics.CANSparkMax;
 import com.revrobotics.CANSparkLowLevel.MotorType;
@@ -13,13 +24,20 @@ import frc.robot.test.motorPID;
 import frc.robot.util.Button;
 import frc.robot.util.NavX;
 import frc.robot.util.PIDController;
+import edu.wpi.first.apriltag.AprilTagFieldLayout;
+import edu.wpi.first.apriltag.AprilTagFields;
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation3d;
+import edu.wpi.first.math.geometry.Transform2d;
+import edu.wpi.first.math.geometry.Transform3d;
+import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import frc.robot.util.PIDXController;
 
 public class Robot extends TimedRobot {
-
+    
     private Joystick m_stick;
     private Joystick m_stick2;
 
@@ -59,6 +77,14 @@ public class Robot extends TimedRobot {
     private static PIDXController pidHdg = new PIDXController(1.0/80, 0.0, 0.0);     //adj rotSpd for heading
 
     public boolean auto = false;
+    private boolean robotOriented = false;
+    private double[] inputs;
+    private PhotonCamera camera = new PhotonCamera("Arducam_OV2311_USB_Camera");
+    private double yaw, pitch, area2, skew;
+    Transform3d robotToCam = new Transform3d(new Translation3d(0.5, 0.0, 0.5), new Rotation3d(0,-30.0,20.0));
+    PhotonPoseEstimator photonPoseEstimator;
+
+    private AprilTagFieldLayout aprilTagFieldLayout;
 
     @Override
     public void robotInit() {
@@ -68,7 +94,7 @@ public class Robot extends TimedRobot {
         autoBtn.setButton(m_stick, 11);
         headingHoldBtn.setButton(m_stick, 12);
         resetGyroBtn.setButton(m_stick, 10);
-        lookAtNote.setButton(m_stick, 9);
+        lookAtNote.setButton(m_stick, 1);
 
         frontLeftLdPID.init();
         backLeftLdPID.init();
@@ -77,6 +103,20 @@ public class Robot extends TimedRobot {
         
         pidHdg.setExt(pidHdg, 0.0, 1.0/50, 3.0, 0.05, 0.5, 2.0, true);
         pidHdg.enableContinuousInput(-180, 180);
+        try {
+            // Your existing constructor code goes here
+            aprilTagFieldLayout = AprilTagFieldLayout.loadFromResource(AprilTagFields.k2024Crescendo.m_resourceFile);
+        } catch (IOException e) {
+            // Handle the exception, e.g., print an error message or log it
+            System.err.println("Error occurred: " + e.getMessage());
+        }
+        
+        photonPoseEstimator = new PhotonPoseEstimator(aprilTagFieldLayout, PoseStrategy.CLOSEST_TO_REFERENCE_POSE, camera, robotToCam);
+    }
+    
+    public Optional<EstimatedRobotPose> getEstimatedGlobalPose(Pose2d prevEstimatedRobotPose) {
+        photonPoseEstimator.setReferencePose(prevEstimatedRobotPose);
+        return photonPoseEstimator.update();
     }
 
     @Override
@@ -90,27 +130,55 @@ public class Robot extends TimedRobot {
         double setPointX = -m_stick.getX();
         double setPointZ = m_stick2.getX();
 
+        //Limelight stuff
         double x = tx.getDouble(0.0);
         double y = ty.getDouble(0.0);
         double area = ta.getDouble(0.0);
 
+        //Photonvision stuff
+        var result = camera.getLatestResult();
+        boolean hasTargets = result.hasTargets();
+        List<PhotonTrackedTarget> targets = result.getTargets();
+        PhotonTrackedTarget target = result.getBestTarget();
+
+
+        if (hasTargets){
+            // Get information from target.
+            yaw = target.getYaw();
+            pitch = target.getPitch();
+            area2 = target.getArea();
+            skew = target.getSkew();
+        }
+        // Transform2d pose = target.getCameraToTarget();
+        // List<TargetCorner> corners = target.getCorners();
+
         if (autoBtn.isDown() && x != 0.0) auto = true;
         else auto = false;
 
-        if (auto) {
-            double pidOutputX = pidControllerX.calculate(0.0, x);
+        if (auto && hasTargets) {
+            double pidOutputX = pidControllerX.calculate(-36.0, yaw);
             setPointX -= pidOutputX;
+            
 
-            double targetArea = 0.32;
-            double pidOutputY = pidControllerY.calculate(targetArea, area);
+            double targetArea = 0.59;
+            double pidOutputY = pidControllerY.calculate(targetArea, area2);
             setPointY -= pidOutputY;
+
+            robotOriented = true;
+        }
+        else{
+            robotOriented = false;
         }
 
         if (lookAtNote.isDown() && x != 0.0){
           
             double pidOutputZ = pidControllerZ.calculate(0.0, x);
             setPointZ = -pidOutputZ;
-            // setPointY = 0;
+            robotOriented = true;
+            setPointX = 0;
+        }
+        if (lookAtNote.isUp()){
+            robotOriented = false;
         }
 
         if (headingHoldBtn.isDown()){
@@ -121,8 +189,14 @@ public class Robot extends TimedRobot {
           navX.reset();
         }
 
-        double[] inputs = MecanumDriveCalculator.calculateMecanumDrive(setPointX, setPointY, setPointZ);
-
+        if (robotOriented) 
+        {
+            inputs = MecanumDriveCalculator.calculateMecanumDriveRobot(setPointX, setPointY, setPointZ);
+        }
+        else
+        {
+            inputs = MecanumDriveCalculator.calculateMecanumDrive(setPointX, setPointY, setPointZ, navX.getAngle());
+        }
         frontLeftLdPID.updateSetpoint(inputs[0] * maxRPM);
         frontRightLdPID.updateSetpoint(inputs[1] * maxRPM);
         backLeftLdPID.updateSetpoint(inputs[2] * maxRPM);
@@ -140,5 +214,8 @@ public class Robot extends TimedRobot {
         SmartDashboard.putNumber("InputFR", inputs[1]);
         SmartDashboard.putNumber("InputBL", inputs[2]);
         SmartDashboard.putNumber("InputBR", inputs[3]);
+
+        //TODO: Fix
+        System.out.println(getEstimatedGlobalPose(null));
     }
 }
